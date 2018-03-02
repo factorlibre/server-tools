@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- © 2018 Hugo Santos <hugo.santos@factorlibre.com>
+     License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl.html). -->
+<openerp>
+  <data>
+    <record id="view_res_config_settings" model="ir.ui.view">
+        <field name="name">base.config.settings.view</field>
+        <field name="model">base.config.settings</field>
+        <field name="inherit_id" ref="base_setup.view_general_configuration"/>
+        <field name="arch" type="xml">
+            <form position="inside">
+                <group>
+                    <label for="id" string="AWS Config for S3 Images"/>
+                    <div>
+                        <div>
+                            <label for="aws_access_key_id"/>
+                            <field name="aws_access_key_id" class="oe_inline"/>
+                        </div>
+                        <div>
+                            <label for="aws_secret_access_key"/>
+                            <field name="aws_secret_access_key" class="oe_inline" widget="password"/>
+                        </div>
+                        <div>
+                            <label for="aws_s3_bucket_name"/>
+                            <field name="aws_s3_bucket_name" class="oe_inline"/>
+                        </div>
+                        <div>
+                            <label for="aws_image_public_domain"/>
+                            <field name="aws_image_public_domain" class="oe_inline"/>
+                        </div>
+                    </div>
+                </group>
+            </form>
+        </field>
+    </record>
+  </data>
+</openerp>
