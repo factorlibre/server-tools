@@ -4,7 +4,7 @@
 
 import operator
 
-from openerp import http
+from openerp import http, registry
 from openerp.http import request
 from openerp.addons.auth_signup.controllers.main import AuthSignupHome
 from openerp.addons.web.controllers.main import ensure_db, Session
@@ -38,7 +38,7 @@ class PasswordSecurityHome(AuthSignupHome):
         response = super(PasswordSecurityHome, self).web_login(*args, **kw)
         if not request.httprequest.method == 'POST':
             return response
-        uid = request.session.authenticate(
+        uid = registry(request.session.db)['res.users']._login(
             request.session.db,
             request.params['login'],
             request.params['password']
