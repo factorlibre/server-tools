@@ -100,7 +100,7 @@ def uninstall_hook_for_submodules(cr, registry, model, field=None,
             for image in images:
                 if image.owner_id not in main_images:
                     main_images[image.owner_id] = image
-            main_images = main_images.values()
+            main_images = list(main_images.values())
             Model = env[model]
             Field = field and Model._fields[field]
             FieldMedium = field_medium and Model._fields[field_medium]

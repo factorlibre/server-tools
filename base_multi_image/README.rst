@@ -85,7 +85,7 @@ To develop a module based on this one:
 
 .. image:: https://odoo-community.org/website/image/ir.attachment/5784_f2813bd/datas
    :alt: Try me on Runbot
-   :target: https://runbot.odoo-community.org/runbot/149/10.0
+   :target: https://runbot.odoo-community.org/runbot/149/11.0
 
 Known issues / Roadmap
 ======================
@@ -104,7 +104,7 @@ help us smashing it by providing a detailed and welcomed `feedback
 <https://github.com/OCA/
 server-tools/issues/new?body=module:%20
 base_multi_image%0Aversion:%20
-10.0%0A%0A**Steps%20to%20reproduce**%0A-%20...%0A%0A**Current%20behavior**%0A%0A**Expected%20behavior**>`_.
+11.0%0A%0A**Steps%20to%20reproduce**%0A-%20...%0A%0A**Current%20behavior**%0A%0A**Expected%20behavior**>`_.
 
 Credits
 =======
@@ -122,6 +122,7 @@ Contributors
 * Jairo Llopis <yajo.sk8@gmail.com>
 * Sodexis <dev@sodexis.com>
 * Dave Lasley <dave@laslabs.com>
+* Hugo Santos <hugo.santos@factorlibre.com>
 
 Maintainer
 ----------
