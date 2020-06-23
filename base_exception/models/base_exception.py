@@ -234,7 +234,8 @@ class BaseException(models.AbstractModel):
             if rec.exception_ids and not rec.ignore_exception:
                 rec.exceptions_summary = '<ul>%s</ul>' % ''.join([
                     '<li>%s: <i>%s</i></li>' % tuple(map(html.escape, (
-                        e.name, e.description))) for e in rec.exception_ids])
+                        e.name, e.description or '')))
+                    for e in rec.exception_ids])
 
     @api.multi
     def _popup_exceptions(self):
