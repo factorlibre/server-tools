@@ -159,6 +159,10 @@
                                         attrs="{'invisible': [('section_type', '!=', 'data')]}"
                                     />
                                     <field
+                                        name="is_unidecode"
+                                        attrs="{'invisible': [('section_type', '!=', 'data')]}"
+                                    />
+                                    <field
                                         name="style"
                                         attrs="{'invisible': [('section_type', '!=', 'data')]}"
                                     />

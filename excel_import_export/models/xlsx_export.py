@@ -8,6 +8,8 @@ import zipfile
 from datetime import date, datetime as dt
 from io import BytesIO
 
+import unidecode
+
 from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
 from odoo.tools.float_utils import float_compare
@@ -57,6 +59,7 @@ class XLSXExport(models.AbstractModel):
         vals = {field: [] for field in fields}  # value and do_style
         # Get field condition & aggre function
         field_cond_dict = {}
+        field_unidecode_dict = {}
         aggre_func_dict = {}
         field_style_dict = {}
         style_cond_dict = {}
@@ -64,11 +67,13 @@ class XLSXExport(models.AbstractModel):
         for field in fields:
             temp_field, eval_cond = co.get_field_condition(field)
             eval_cond = eval_cond or 'value or ""'
+            temp_field, field_unidecode = co.get_field_unidecode(temp_field)
             temp_field, field_style = co.get_field_style(temp_field)
             temp_field, style_cond = co.get_field_style_cond(temp_field)
             raw_field, aggre_func = co.get_field_aggregation(temp_field)
             # Dict of all special conditions
             field_cond_dict.update({field: eval_cond})
+            field_unidecode_dict.update({field: field_unidecode})
             aggre_func_dict.update({field: aggre_func})
             field_style_dict.update({field: field_style})
             style_cond_dict.update({field: style_cond})
@@ -81,6 +86,12 @@ class XLSXExport(models.AbstractModel):
                 eval_context = self.get_eval_context(line._name, line, value)
                 if eval_cond:
                     value = safe_eval(eval_cond, eval_context)
+                if field_unidecode_dict[field[0]] and (
+                    isinstance(value, bytes) or isinstance(value, str)
+                ):
+                    if isinstance(value, bytes):
+                        value = value.decode("utf-8")
+                    value = unidecode.unidecode(value)
                 # style w/Cond takes priority
                 style_cond = style_cond_dict[field[0]]
                 style = self._eval_style_cond(line._name, line, value, style_cond)

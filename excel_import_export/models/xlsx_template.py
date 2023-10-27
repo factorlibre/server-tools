@@ -396,6 +396,8 @@ self['{}'] = self.env['{}'].search(self.safe_domain(self.domain))
                     field_name += line.style_cond or ""
                     if line.is_sum:
                         field_name += "@{sum}"
+                    if line.is_unidecode:
+                        field_name += "@?unidecode?"
                     cell_dict = {excel_cell: field_name}
                     inst_dict[itype][prev_sheet][prev_row].update(cell_dict)
                     continue
@@ -600,6 +602,7 @@ class XLSXTemplateExport(models.Model):
     field_name = fields.Char(string="Field")
     field_cond = fields.Char(string="Field Cond.")
     is_sum = fields.Boolean(string="Sum", default=False)
+    is_unidecode = fields.Boolean(string="Unidecode", default=False)
     style = fields.Char(string="Default Style")
     style_cond = fields.Char(string="Style w/Cond.")
 
@@ -617,6 +620,7 @@ class XLSXTemplateExport(models.Model):
             field_name, style = co.get_field_style(field_name)
             field_name, style_cond = co.get_field_style_cond(field_name)
             field_name, func = co.get_field_aggregation(field_name)
+            field_name, func_unidecode = co.get_field_unidecode(field_name)
             vals.update(
                 {
                     "field_name": field_name,
@@ -624,6 +628,7 @@ class XLSXTemplateExport(models.Model):
                     "style": "#{%s}" % (style or ""),
                     "style_cond": "#?%s?" % (style_cond or ""),
                     "is_sum": func == "sum" and True or False,
+                    "is_unidecode": func_unidecode,
                 }
             )
         return vals

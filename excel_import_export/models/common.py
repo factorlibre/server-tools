@@ -31,6 +31,20 @@ def adjust_cell_formula(value, k):
     return value
 
 
+def get_field_unidecode(field):
+    """i..e, 'field@?unidecode?'"""
+    if field and "@?" in field and "?" in field:
+        i = field.index("@?")
+        j = field.index("?", i)
+        cond = field[i + 2 : j]
+        try:
+            if cond or cond == "":
+                return (field[:i], True)
+        except Exception:
+            return (field.replace("@?%s?" % cond, ""), False)
+    return (field, False)
+
+
 def get_field_aggregation(field):
     """i..e, 'field@{sum}'"""
     if field and "@{" in field and "}" in field:
