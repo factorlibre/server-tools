@@ -1,0 +1,77 @@
+# Translation of Odoo Server.
+# This file contains the translation of the following modules:
+# 	* base_jsonify
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 11.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2024-03-18 10:12+0000\n"
+"PO-Revision-Date: 2024-03-18 11:13+0100\n"
+"Last-Translator: <>\n"
+"Language-Team: \n"
+"Language: es\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: \n"
+"X-Generator: Poedit 3.0.1\n"
+
+#. module: base_jsonify
+#: model:ir.model.fields,field_description:base_jsonify.field_ir_exports_line_alias
+msgid "Alias"
+msgstr "Alias"
+
+#. module: base_jsonify
+#: model:ir.ui.view,arch_db:base_jsonify.view_ir_exports
+msgid "Configuration"
+msgstr "Configuración"
+
+#. module: base_jsonify
+#: model:ir.actions.act_window,name:base_jsonify.act_ui_exports_view
+#: model:ir.ui.menu,name:base_jsonify.ui_exports
+msgid "Export Fields"
+msgstr "Exportar Campos"
+
+#. module: base_jsonify
+#: model:ir.ui.view,arch_db:base_jsonify.view_ir_exports
+msgid "Index"
+msgstr "Índice"
+
+#. module: base_jsonify
+#: code:addons/base_jsonify/models/ir_exports_line.py:26
+#, python-format
+msgid "Name and Alias must have the same hierarchy depth"
+msgstr "Los campos nombre y alias deben tener la misma profuncidad en la jerarquía"
+
+#. module: base_jsonify
+#: code:addons/base_jsonify/models/ir_exports_line.py:31
+#, python-format
+msgid "The alias must reference the same field as in name '%s' not in '%s'"
+msgstr "El alias debe referencias el mismo campo como en '%s', no en '%s'"
+
+#. module: base_jsonify
+#: model:ir.model.fields,help:base_jsonify.field_ir_exports_line_alias
+msgid "The complete path to the field where you can specify an alias on the a step as field:alias"
+msgstr "La ruta completa al campo donde se puede especificar un seudónimo en el paso como field:alias"
+
+#. module: base_jsonify
+#: code:addons/base_jsonify/models/models.py:69
+#, python-format
+msgid "Wrong parser configuration"
+msgstr "Configuración incorrecta del analizador sintáctico"
+
+#. module: base_jsonify
+#: model:ir.model,name:base_jsonify.model_base
+msgid "base"
+msgstr "base"
+
+#. module: base_jsonify
+#: model:ir.model,name:base_jsonify.model_ir_exports
+msgid "ir.exports"
+msgstr "ir.exports"
+
+#. module: base_jsonify
+#: model:ir.model,name:base_jsonify.model_ir_exports_line
+msgid "ir.exports.line"
+msgstr "ir.exports.line"
