@@ -88,13 +88,14 @@ def _overload_load_manifest(module, mod_path=None):
                     "Module '%s' has been marked as auto installable if '%s' are installed"
                     % (module, ",".join(specific_dependencies))
                 )
+                # Specific dependencies are installed only from button_install
+                # to avoid installation of unwanted modules on database initialization
             else:
                 _logger.info(
                     "Module '%s' has been marked as auto installable in ALL CASES."
                     % module
                 )
-
-            res["auto_install"] = set(specific_dependencies)
+                res["auto_install"] = set(specific_dependencies)
     return res
 
 
@@ -134,9 +135,7 @@ def button_install(self):
                 if specific_dependencies:
                     states = set()
                     for dep_name in specific_dependencies:
-                        dependency_module = self.search(
-                            [("name", "=", dep_name)]
-                        )
+                        dependency_module = self.search([("name", "=", dep_name)])
                         states.add(dependency_module.state or "uninstalled")
                 else:
                     states = {"installed"}
