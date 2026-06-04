@@ -8,7 +8,7 @@ from sentry_sdk._compat import text_type
 from werkzeug import datastructures
 
 from .generalutils import get_environ
-from .processor import SanitizePasswordsProcessor
+from .processor import SanitizeKeysProcessor, SanitizePasswordsProcessor
 
 
 def get_request_info(request):
@@ -55,14 +55,62 @@ def get_extra_context(request):
 
 class SanitizeOdooCookiesProcessor(SanitizePasswordsProcessor):
     """Custom :class:`raven.processors.Processor`.
-    Allows to sanitize sensitive Odoo cookies, namely the "session_id" cookie.
+    Allows to sanitize sensitive Odoo cookies, namely the "session_id"
+    cookie, in addition to the default password-like keys.
     """
 
-    KEYS = frozenset(
+    KEYS = SanitizePasswordsProcessor.KEYS | frozenset(
         [
             "session_id",
         ]
     )
+
+
+class SanitizeOdooRpcProcessor(object):
+    """Masks RPC payloads passed positionally in stacktrace frame locals.
+
+    Key-based sanitizing (:class:`SanitizePasswordsProcessor`) cannot catch
+    the password sent inside the positional RPC payload, e.g. ``params[2]``
+    for ``common.authenticate`` or ``object.execute_kw``, nor the raw
+    XML-RPC request body, so the whole variable is masked in the frames of
+    the RPC entry points.
+    """
+
+    MASK = SanitizeKeysProcessor.MASK
+
+    MODULES = frozenset(
+        [
+            "odoo.addons.base.controllers.rpc",
+            "odoo.http",
+            "odoo.service.common",
+            "odoo.service.db",
+            "odoo.service.model",
+            "odoo.service.security",
+        ]
+    )
+    VARS = frozenset(
+        [
+            "args",
+            "data",
+            "params",
+        ]
+    )
+
+    def process(self, data, **kwargs):
+        for section in ("exception", "threads"):
+            for value in data.get(section, {}).get("values", []):
+                stacktrace = value.get("stacktrace")
+                if stacktrace:
+                    self.filter_stacktrace(stacktrace)
+        return data
+
+    def filter_stacktrace(self, stacktrace):
+        for frame in stacktrace.get("frames", []):
+            if frame.get("module") not in self.MODULES:
+                continue
+            frame_vars = frame.get("vars") or {}
+            for name in self.VARS & set(frame_vars):
+                frame_vars[name] = self.MASK
 
 
 class InvalidGitRepository(Exception):

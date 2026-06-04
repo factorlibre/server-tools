@@ -13,6 +13,7 @@ from . import const
 from .logutils import (
     InvalidGitRepository,
     SanitizeOdooCookiesProcessor,
+    SanitizeOdooRpcProcessor,
     fetch_git_sha,
     get_extra_context,
 )
@@ -61,8 +62,8 @@ def before_send(event, hint):
             info_item = event.setdefault(item, {})
             info_item.update(cxtest.setdefault(item, {}))
 
-    raven_processor = SanitizeOdooCookiesProcessor()
-    raven_processor.process(event)
+    for processor in (SanitizeOdooCookiesProcessor(), SanitizeOdooRpcProcessor()):
+        processor.process(event)
 
     return event
 

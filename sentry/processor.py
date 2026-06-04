@@ -20,11 +20,13 @@ class SanitizeKeysProcessor(object):
     MASK = "*" * 8
 
     def process(self, data, **kwargs):
-        if "exception" in data:
-            if "values" in data["exception"]:
-                for value in data["exception"].get("values", []):
-                    if "stacktrace" in value:
-                        self.filter_stacktrace(value["stacktrace"])
+        for section in ("exception", "threads"):
+            for value in data.get(section, {}).get("values", []) or []:
+                if "stacktrace" in value:
+                    self.filter_stacktrace(value["stacktrace"])
+
+        if "breadcrumbs" in data:
+            self.filter_breadcrumbs(data["breadcrumbs"])
 
         if "request" in data:
             self.filter_http(data["request"])
@@ -90,6 +92,14 @@ class SanitizeKeysProcessor(object):
                 data[n] = varmap(self.sanitize, data[n])
                 if n == "headers" and "Cookie" in data[n]:
                     data[n]["Cookie"] = self._sanitize_keyvals(data[n]["Cookie"], ";")
+
+    def filter_breadcrumbs(self, data):
+        # Breadcrumbs are {"values": [...]} in events, but accept a
+        # plain list as well.
+        crumbs = data.get("values", []) if isinstance(data, dict) else data
+        for crumb in crumbs or []:
+            if crumb.get("data"):
+                crumb["data"] = varmap(self.sanitize, crumb["data"])
 
     def filter_extra(self, data):
         return varmap(self.sanitize, data)
