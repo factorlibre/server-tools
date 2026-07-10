@@ -92,7 +92,103 @@ def _overload_load_manifest(module, mod_path=None):
     return res
 
 
+INSTALL_STATES = frozenset(("installed", "to install", "to upgrade"))
+
+_original_button_install = None  # captured in post_load()
+
+
+def _get_config_glue_pending(env):
+    """Return uninstalled glue modules whose config dependencies are all met.
+
+    Only entries with >=2 specific dependencies (``glue:pkg_a/pkg_b``) are
+    considered: they are the AND-glue between functional packages that the
+    native ``auto_install`` mechanism cannot handle (their dependencies are
+    not part of the manifest ``depends``). Unconditional (``module:``) and
+    single-dependency (``module:dep``) entries are out of scope.
+
+    Dependencies are resolved by module name against ``ir.module.module``;
+    a dependency missing from the database counts as uninstalled. A glue is
+    pending when every dependency state is within ``INSTALL_STATES`` — this
+    covers both retroactive reconciliation (dependencies already installed)
+    and dependencies being installed in the current transaction.
+
+    The nested name-based searches are bounded by the configuration size
+    (a few dozen entries at most) and only run on explicit install actions,
+    never on data-volume flows.
+    """
+    enabled = _get_modules_dict_auto_install_config(
+        config.get(
+            "modules_auto_install_enabled",
+            os.environ.get("ODOO_MODULES_AUTO_INSTALL_ENABLED"),
+        )
+    )
+    disabled = _get_modules_dict_auto_install_config(
+        config.get(
+            "modules_auto_install_disabled",
+            os.environ.get("ODOO_MODULES_AUTO_INSTALL_DISABLED"),
+        )
+    )
+    module_obj = env["ir.module.module"]
+    names = [
+        name
+        for name, deps in enabled.items()
+        if name and name not in disabled and isinstance(deps, list) and len(deps) >= 2
+    ]
+    if not names:
+        return module_obj.browse()
+    candidates = module_obj.search(
+        [("state", "=", "uninstalled"), ("name", "in", names)]
+    )
+    pending = module_obj.browse()
+    for module in candidates:
+        states = set()
+        for dep_name in enabled[module.name]:
+            dep = module_obj.search([("name", "=", dep_name)], limit=1)
+            states.add(dep.state or "uninstalled")
+        if states <= INSTALL_STATES:
+            pending |= module
+    return pending
+
+
+def _button_install_patched(self):
+    res = _original_button_install(self)
+    # Post-cascade reconciliation, iterated to a fixpoint so that a glue
+    # whose dependencies include another glue installed in this same pass
+    # (``glue_b:pkg_x/glue_a``) is caught as well. The upper bound is the
+    # number of configured entries: each iteration must mark at least one
+    # new module or stop.
+    enabled = _get_modules_dict_auto_install_config(
+        config.get(
+            "modules_auto_install_enabled",
+            os.environ.get("ODOO_MODULES_AUTO_INSTALL_ENABLED"),
+        )
+    )
+    for _unused in range(len(enabled) + 1):
+        pending = _get_config_glue_pending(self.env)
+        if not pending:
+            break
+        _logger.info("Config auto-install glue to install: %s", pending.mapped("name"))
+        # Re-use the core cascade (exclusion and category checks included).
+        _original_button_install(pending)
+    return res
+
+
 def post_load():
+    global _original_button_install
     _logger.info("Applying patch module_change_auto_intall ...")
     modules.module.load_manifest = _overload_load_manifest
     modules.load_manifest = _overload_load_manifest
+    # Import here: at post_load time ``odoo.addons.base`` is already
+    # importable, while importing it at module level would be premature for
+    # a server-wide module loaded at startup.
+    from odoo.addons.base.models.ir_module import Module
+
+    if getattr(Module.button_install, "_mcai_patched", False):
+        return
+    # The captured original is already decorated with
+    # assert_log_admin_access in the core: every call to the wrapper goes
+    # through it first, so decorating the wrapper again would only
+    # duplicate the admin check and its access log.
+    _original_button_install = Module.button_install
+    _button_install_patched._mcai_patched = True
+    Module.button_install = _button_install_patched
