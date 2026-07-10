@@ -11,6 +11,12 @@ from odoo.tools import config
 _logger = logging.getLogger(__name__)
 _original_load_manifest = modules.module.load_manifest
 
+# True only while ``odoo/modules/db.py:initialize`` runs on a brand-new
+# database. Used to skip the auto-install of config glue with specific
+# dependencies during from-scratch initialization (see the note in
+# ``_overload_load_manifest`` and ``_initialize_patched``).
+_in_db_initialize = False
+
 
 def _get_modules_dict_auto_install_config(config_value):
     """Given a configuration parameter name, return a dict of
@@ -81,6 +87,22 @@ def _overload_load_manifest(module, mod_path=None):
                     "Module '%s' has been marked as auto installable if '%s' are installed"
                     % (module, ",".join(specific_dependencies))
                 )
+                if _in_db_initialize:
+                    # On a brand-new database ``odoo/modules/db.py:initialize``
+                    # picks auto-install candidates from the
+                    # ``auto_install_required`` dependency rows, which are only
+                    # created for the manifest ``depends``. The specific
+                    # dependencies of this glue (functional packages) are NOT in
+                    # ``depends``, so no row is ``auto_install_required`` and the
+                    # core ``NOT EXISTS`` check is vacuously true: the glue would
+                    # be installed on every from-scratch database even when its
+                    # packages are not contracted. During DB initialization we
+                    # keep the native (falsy) ``auto_install`` so the glue is
+                    # NOT marked; installing it is delegated to
+                    # ``button_install`` and to the deploy script, both of which
+                    # resolve dependencies by name. The column flag is restored
+                    # right after initialization in ``_initialize_patched``.
+                    return res
             else:
                 _logger.info(
                     "Module '%s' has been marked as auto installable in ALL CASES."
@@ -173,11 +195,57 @@ def _button_install_patched(self):
     return res
 
 
+_original_db_initialize = None  # captured in post_load()
+
+
+def _initialize_patched(cr):
+    """Wrap ``odoo/modules/db.py:initialize`` (fresh-database bootstrap).
+
+    While the original runs, config glue with specific dependencies is kept
+    out of the auto-install pass (see ``_overload_load_manifest``). Afterwards
+    the ``auto_install`` column flag is restored for those modules so the
+    deploy script (``set_addons_auto_install.py``), which filters candidates
+    by ``auto_install = True``, still considers them. The restore runs in the
+    same bootstrap transaction as ``initialize``.
+    """
+    global _in_db_initialize
+    _in_db_initialize = True
+    try:
+        _original_db_initialize(cr)
+    finally:
+        _in_db_initialize = False
+    enabled = _get_modules_dict_auto_install_config(
+        config.get(
+            "modules_auto_install_enabled",
+            os.environ.get("ODOO_MODULES_AUTO_INSTALL_ENABLED"),
+        )
+    )
+    glue_names = tuple(
+        name
+        for name, deps in enabled.items()
+        if name and isinstance(deps, list) and deps
+    )
+    if glue_names:
+        cr.execute(
+            "UPDATE ir_module_module SET auto_install = true "
+            "WHERE name IN %s AND auto_install = false",
+            (glue_names,),
+        )
+
+
 def post_load():
-    global _original_button_install
+    global _original_button_install, _original_db_initialize
     _logger.info("Applying patch module_change_auto_intall ...")
     modules.module.load_manifest = _overload_load_manifest
     modules.load_manifest = _overload_load_manifest
+    # Skip the from-scratch auto-install of config glue with specific
+    # dependencies (see ``_initialize_patched``). Idempotent.
+    from odoo.modules import db as _db
+
+    if not getattr(_db.initialize, "_mcai_patched", False):
+        _original_db_initialize = _db.initialize
+        _initialize_patched._mcai_patched = True
+        _db.initialize = _initialize_patched
     # Import here: at post_load time ``odoo.addons.base`` is already
     # importable, while importing it at module level would be premature for
     # a server-wide module loaded at startup.
