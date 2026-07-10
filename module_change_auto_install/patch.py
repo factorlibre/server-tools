@@ -87,21 +87,26 @@ def _overload_load_manifest(module, mod_path=None):
                     "Module '%s' has been marked as auto installable if '%s' are installed"
                     % (module, ",".join(specific_dependencies))
                 )
-                if _in_db_initialize:
-                    # On a brand-new database ``odoo/modules/db.py:initialize``
-                    # picks auto-install candidates from the
-                    # ``auto_install_required`` dependency rows, which are only
-                    # created for the manifest ``depends``. The specific
-                    # dependencies of this glue (functional packages) are NOT in
-                    # ``depends``, so no row is ``auto_install_required`` and the
-                    # core ``NOT EXISTS`` check is vacuously true: the glue would
-                    # be installed on every from-scratch database even when its
-                    # packages are not contracted. During DB initialization we
-                    # keep the native (falsy) ``auto_install`` so the glue is
-                    # NOT marked; installing it is delegated to
-                    # ``button_install`` and to the deploy script, both of which
-                    # resolve dependencies by name. The column flag is restored
-                    # right after initialization in ``_initialize_patched``.
+                if _in_db_initialize and len(specific_dependencies) >= 2:
+                    # AND-glue (``glue:pkg_a/pkg_b``): on a brand-new database
+                    # ``odoo/modules/db.py:initialize`` picks auto-install
+                    # candidates from the ``auto_install_required`` dependency
+                    # rows, which are only created for the manifest ``depends``.
+                    # These packages are NOT in ``depends``, so no row is
+                    # ``auto_install_required`` and the core ``NOT EXISTS`` check
+                    # is vacuously true: the glue would be installed on every
+                    # from-scratch database even when its packages are not
+                    # contracted. During DB initialization we keep the native
+                    # (falsy) ``auto_install`` so the glue is NOT marked;
+                    # installing it is delegated to ``button_install`` and to
+                    # the deploy script, both of which resolve dependencies by
+                    # name. The column flag is restored right after
+                    # initialization in ``_initialize_patched``.
+                    #
+                    # Single-dependency entries (``module:dep``) are left
+                    # untouched: their dependency is typically part of the
+                    # manifest ``depends``, so the native load-time behaviour is
+                    # correct and not vacuous.
                     return res
             else:
                 _logger.info(
@@ -257,7 +262,7 @@ def _initialize_patched(cr):
     glue_names = tuple(
         name
         for name, deps in enabled.items()
-        if name and isinstance(deps, list) and deps
+        if name and isinstance(deps, list) and len(deps) >= 2
     )
     if glue_names:
         cr.execute(
