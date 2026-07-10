@@ -1,3 +1,7 @@
+.. image:: https://odoo-community.org/readme-banner-image
+   :target: https://odoo-community.org/get-involved?utm_source=readme
+   :alt: Odoo Community Association
+
 ===============================
 Change auto installable modules
 ===============================
@@ -13,7 +17,7 @@ Change auto installable modules
 .. |badge1| image:: https://img.shields.io/badge/maturity-Beta-yellow.png
     :target: https://odoo-community.org/page/development-status
     :alt: Beta
-.. |badge2| image:: https://img.shields.io/badge/licence-AGPL--3-blue.png
+.. |badge2| image:: https://img.shields.io/badge/license-AGPL--3-blue.png
     :target: http://www.gnu.org/licenses/agpl-3.0-standalone.html
     :alt: License: AGPL-3
 .. |badge3| image:: https://img.shields.io/badge/github-OCA%2Fserver--tools-lightgray.png?logo=github
@@ -138,6 +142,32 @@ When using environment variables, the same configuration is:
 
    export ODOO_MODULES_AUTO_INSTALL_ENABLED=account_usability,web_responsive:web,base_technical_features:,point_of_sale:sale/purchase
 
+
+**Installation of glue entries when installing modules from the Apps UI**
+
+Entries with **two or more** specific dependencies (``glue:pkg_a/pkg_b``) are
+also reconciled at runtime: every call to ``ir.module.module.button_install``
+(for instance installing a module from the Apps menu) triggers a
+post-cascade pass that installs any such glue module whose dependencies are
+all installed — or being installed in that same transaction. The pass
+iterates to a fixpoint, so a glue depending on another glue installed in the
+same pass is caught as well. The reconciliation is also retroactive: if the
+dependencies were already installed beforehand, the glue is installed on the
+next ``button_install`` call, whatever module it targets. Installed glue
+modules are logged::
+
+    INFO db_name odoo.addons.module_change_auto_install.patch: Config auto-install glue to install: ['point_of_sale']
+
+Notes and limitations:
+
+* This runtime hook only applies to entries with >=2 specific dependencies.
+  Unconditional entries (``module:``) and single-dependency entries
+  (``module:dep``) keep the load-time ``auto_install`` behaviour only.
+* The module MUST be listed in ``server_wide_modules``: the hook is applied
+  in ``post_load()``, before the registry evaluates any installation.
+* The hook wraps ``Module.button_install`` on the Python class of the
+  ``base`` addon. A third-party addon overriding ``button_install`` through
+  ``_inherit`` without calling ``super()`` would shadow it.
 
 Development
 ===========
