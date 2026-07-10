@@ -77,28 +77,53 @@ When using environment variables, the same configuration is:
    export ODOO_MODULES_AUTO_INSTALL_ENABLED=account_usability,web_responsive:web,base_technical_features:,point_of_sale:sale/purchase
 
 
-**Installation of glue entries when installing modules from the Apps UI**
+**Glue entries with two or more dependencies (``glue:pkg_a/pkg_b``)**
 
-Entries with **two or more** specific dependencies (``glue:pkg_a/pkg_b``) are
-also reconciled at runtime: every call to ``ir.module.module.button_install``
-(for instance installing a module from the Apps menu) triggers a
-post-cascade pass that installs any such glue module whose dependencies are
-all installed — or being installed in that same transaction. The pass
-iterates to a fixpoint, so a glue depending on another glue installed in the
-same pass is caught as well. The reconciliation is also retroactive: if the
-dependencies were already installed beforehand, the glue is installed on the
-next ``button_install`` call, whatever module it targets. Installed glue
-modules are logged::
+Entries with **two or more** specific dependencies are the AND-glue between
+functional packages whose names are **not** part of the glue manifest
+``depends``. The native ``auto_install`` mechanism cannot resolve them, so
+they are handled explicitly at the moments below, all resolving dependencies
+**by name**:
 
-    INFO db_name odoo.addons.module_change_auto_install.patch: Config auto-install glue to install: ['point_of_sale']
+* **Installing modules from the Apps UI.** Every call to
+  ``ir.module.module.button_install`` runs a post-cascade pass that installs
+  such glue **whose dependencies the current operation has just made
+  installable** — i.e. all of its dependencies are installed (or being
+  installed in the same transaction) *and* at least one of them was touched
+  by this install. The pass iterates to a fixpoint, so a glue depending on
+  another glue installed in the same pass is caught as well. Installed glue
+  modules are logged::
+
+      INFO db_name odoo.addons.module_change_auto_install.patch: Config auto-install glue to install: ['point_of_sale']
+
+  The pass runs **fail-loud** (no savepoint): if a glue tied to what is being
+  installed fails, the error is raised, as with any install. Because the pass
+  only ever touches glue related to the current operation, an unrelated,
+  already-installable glue is never (re)tried here and can never abort an
+  unrelated install.
+
+* **Deployment.** Reconciliation of glue whose packages were already
+  installed *before*, independently of any Apps action, is performed by the
+  deployment script (``set_addons_auto_install.py``), which sweeps the whole
+  configuration by name on every deploy.
+
+* **Brand-new database.** During database initialization these glue entries
+  are intentionally **not** auto-installed: since their packages are not part
+  of ``depends``, the core would otherwise install them unconditionally on
+  every from-scratch database even when the packages are not present. They
+  get installed later, by the two mechanisms above, once their packages are
+  actually installed.
 
 Notes and limitations:
 
-* This runtime hook only applies to entries with >=2 specific dependencies.
-  Unconditional entries (``module:``) and single-dependency entries
-  (``module:dep``) keep the load-time ``auto_install`` behaviour only.
-* The module MUST be listed in ``server_wide_modules``: the hook is applied
-  in ``post_load()``, before the registry evaluates any installation.
+* The runtime hook and the fresh-database skip only apply to entries with
+  **two or more** specific dependencies. Unconditional entries (``module:``)
+  are always installed; classic (``module``) and single-dependency
+  (``module:dep``, whose dependency is normally part of the manifest
+  ``depends``) entries keep the native load-time ``auto_install`` behaviour.
+* The module MUST be listed in ``server_wide_modules``: the hook and the
+  fresh-database wrapper are applied in ``post_load()``, before the registry
+  evaluates any installation.
 * The hook wraps ``Module.button_install`` on the Python class of the
   ``base`` addon. A third-party addon overriding ``button_install`` through
   ``_inherit`` without calling ``super()`` would shadow it.
