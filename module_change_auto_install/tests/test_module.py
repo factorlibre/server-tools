@@ -217,3 +217,172 @@ class TestConfigGluePending(TransactionCase):
         ):
             mcai_patch._button_install_patched(self.pkg_b)
         self.assertEqual(self.glue.state, "to install")
+
+    # --- Real hook wiring -------------------------------------------------
+
+    def test_11_button_install_and_initialize_are_hooked(self):
+        import odoo
+
+        from odoo.addons.base.models.ir_module import Module
+
+        from .. import patch as mcai_patch
+
+        mcai_patch.post_load()  # idempotent; normally run for server_wide modules
+        self.assertTrue(getattr(Module.button_install, "_mcai_patched", False))
+        self.assertIs(Module.button_install, mcai_patch._button_install_patched)
+        self.assertTrue(getattr(odoo.modules.db.initialize, "_mcai_patched", False))
+        self.assertIs(odoo.modules.db.initialize, mcai_patch._initialize_patched)
+
+    def test_12_post_load_is_idempotent(self):
+        from .. import patch as mcai_patch
+
+        mcai_patch.post_load()
+        captured = mcai_patch._original_button_install
+        mcai_patch.post_load()  # second call must not re-capture / self-wrap
+        self.assertIs(mcai_patch._original_button_install, captured)
+        self.assertIsNot(
+            mcai_patch._original_button_install, mcai_patch._button_install_patched
+        )
+        self.assertFalse(
+            getattr(mcai_patch._original_button_install, "_mcai_patched", False)
+        )
+
+    def test_13_non_admin_is_denied_through_original(self):
+        """The captured original is already decorated with
+        ``assert_log_admin_access``; the wrapper must not re-decorate nor
+        bypass it, so a non-admin is denied.
+        """
+        from odoo.exceptions import AccessDenied
+
+        from .. import patch as mcai_patch
+
+        mcai_patch.post_load()
+        user = self.env["res.users"].create(
+            {
+                "name": "MCAI No Admin",
+                "login": "mcai_no_admin",
+                "groups_id": [(6, 0, [self.env.ref("base.group_user").id])],
+            }
+        )
+        with self.assertRaises(AccessDenied):
+            mcai_patch._original_button_install(self.glue.with_user(user))
+
+    def test_14_return_value_is_passed_through(self):
+        from unittest import mock
+
+        from odoo.tools import config
+
+        from .. import patch as mcai_patch
+
+        sentinel = {"type": "ir.actions.act_window_close"}
+        with mock.patch.dict(
+            config.options,
+            {"modules_auto_install_enabled": "", "modules_auto_install_disabled": ""},
+        ), mock.patch.object(
+            mcai_patch, "_original_button_install", return_value=sentinel
+        ) as fake:
+            result = mcai_patch._button_install_patched(self.module_obj.browse())
+        self.assertEqual(result, sentinel)
+        fake.assert_called_once()
+
+    # --- Dependency state edge cases -------------------------------------
+
+    def test_15_dep_to_upgrade_marks(self):
+        self.pkg_a.write({"state": "installed"})
+        self.pkg_b.write({"state": "to upgrade"})
+        pending = self._pending("mcai_glue:mcai_pkg_a/mcai_pkg_b")
+        self.assertIn(self.glue, pending)
+
+    def test_16_dep_to_remove_does_not_mark(self):
+        self.pkg_a.write({"state": "installed"})
+        self.pkg_b.write({"state": "to remove"})
+        pending = self._pending("mcai_glue:mcai_pkg_a/mcai_pkg_b")
+        self.assertNotIn(self.glue, pending)
+
+    def test_17_dep_uninstallable_does_not_mark(self):
+        self.pkg_a.write({"state": "installed"})
+        self.pkg_b.write({"state": "uninstallable"})
+        pending = self._pending("mcai_glue:mcai_pkg_a/mcai_pkg_b")
+        self.assertNotIn(self.glue, pending)
+
+    def test_18_installed_glue_not_reselected(self):
+        (self.pkg_a | self.pkg_b).write({"state": "installed"})
+        self.glue.write({"state": "installed"})
+        pending = self._pending("mcai_glue:mcai_pkg_a/mcai_pkg_b")
+        self.assertNotIn(self.glue, pending)
+
+    # --- Fresh-database initialization regression ------------------------
+
+    def test_19_overload_skips_glue_only_during_db_init(self):
+        """``_overload_load_manifest`` keeps the native (falsy) auto_install
+        for >=2-dep glue only while a database is being initialized; outside
+        init it sets the specific deps, and single-dep entries are untouched.
+        """
+        from unittest import mock
+
+        from odoo.tools import config
+
+        from .. import patch as mcai_patch
+
+        with mock.patch.object(
+            mcai_patch,
+            "_original_load_manifest",
+            side_effect=lambda *a, **k: {"depends": ["base"], "auto_install": False},
+        ), mock.patch.dict(
+            config.options,
+            {
+                "modules_auto_install_enabled": (
+                    "mcai_glue:mcai_pkg_a/mcai_pkg_b,mcai_single:mcai_pkg_a"
+                ),
+                "modules_auto_install_disabled": "",
+            },
+        ):
+            # Outside DB init: the >=2-dep glue receives its specific deps.
+            res = mcai_patch._overload_load_manifest("mcai_glue")
+            self.assertEqual(res["auto_install"], {"mcai_pkg_a", "mcai_pkg_b"})
+            with mock.patch.object(mcai_patch, "_in_db_initialize", True):
+                # >=2-dep glue is NOT marked during init.
+                res_init = mcai_patch._overload_load_manifest("mcai_glue")
+                self.assertFalse(res_init["auto_install"])
+                # single-dep entry keeps its native load-time behaviour.
+                res_single = mcai_patch._overload_load_manifest("mcai_single")
+                self.assertEqual(res_single["auto_install"], {"mcai_pkg_a"})
+
+    def test_20_initialize_wrapper_toggles_flag_and_restores_column(self):
+        """``_initialize_patched`` activates the skip flag around the original
+        initialize and restores the ``auto_install`` column flag afterwards,
+        only for >=2-dep glue (so the deploy script still sees them).
+        """
+        from unittest import mock
+
+        from odoo.tools import config
+
+        from .. import patch as mcai_patch
+
+        (self.glue | self.single).write({"auto_install": False})
+        # Flush so the raw UPDATE in _initialize_patched runs against a
+        # consistent DB and is not later clobbered by a pending ORM write.
+        self.env.flush_all()
+        seen = {}
+
+        def fake_initialize(cr):
+            seen["flag_during"] = mcai_patch._in_db_initialize
+
+        with mock.patch.dict(
+            config.options,
+            {
+                "modules_auto_install_enabled": (
+                    "mcai_glue:mcai_pkg_a/mcai_pkg_b,mcai_single:mcai_pkg_a"
+                ),
+                "modules_auto_install_disabled": "",
+            },
+        ), mock.patch.object(
+            mcai_patch, "_original_db_initialize", side_effect=fake_initialize
+        ):
+            mcai_patch._initialize_patched(self.env.cr)
+
+        self.assertTrue(seen["flag_during"])
+        self.assertFalse(mcai_patch._in_db_initialize)
+        (self.glue | self.single).invalidate_recordset(["auto_install"])
+        self.assertTrue(self.glue.auto_install)
+        self.assertFalse(self.single.auto_install)
