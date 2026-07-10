@@ -118,8 +118,6 @@ class TestConfigGluePending(TransactionCase):
 
         from .. import patch as mcai_patch
 
-        (self.pkg_a | self.pkg_b | self.pkg_x).write({"state": "installed"})
-
         def fake_original(records):
             records._state_update("to install", ["uninstalled"])
 
@@ -133,7 +131,10 @@ class TestConfigGluePending(TransactionCase):
         ), mock.patch.object(
             mcai_patch, "_original_button_install", side_effect=fake_original
         ):
-            mcai_patch._button_install_patched(self.module_obj.browse())
+            # This operation installs the packages; the chained glue must then
+            # reconcile to a fixpoint within the SAME operation (each glue is
+            # "affected" because a dependency was just installed here).
+            mcai_patch._button_install_patched(self.pkg_a | self.pkg_b | self.pkg_x)
         self.assertEqual(self.glue.state, "to install")
         self.assertEqual(self.glue_b.state, "to install")
 
@@ -156,3 +157,63 @@ class TestConfigGluePending(TransactionCase):
             mcai_patch._button_install_patched(self.module_obj.browse())
         fake_original.assert_called_once()
         self.assertEqual(self.glue.state, "uninstalled")
+
+    def test_09_unrelated_install_leaves_ready_glue_untouched(self):
+        """A glue whose packages were already installed BEFORE the operation
+        must NOT be reconciled by an unrelated ``button_install`` — that is
+        delegated to the deploy script. This is what keeps an unrelated,
+        possibly-failing glue from aborting the user's install.
+        """
+        from unittest import mock
+
+        from odoo.tools import config
+
+        from .. import patch as mcai_patch
+
+        (self.pkg_a | self.pkg_b).write({"state": "installed"})
+
+        def fake_original(records):
+            records._state_update("to install", ["uninstalled"])
+
+        enabled = "mcai_glue:mcai_pkg_a/mcai_pkg_b"
+        with mock.patch.dict(
+            config.options,
+            {
+                "modules_auto_install_enabled": enabled,
+                "modules_auto_install_disabled": "",
+            },
+        ), mock.patch.object(
+            mcai_patch, "_original_button_install", side_effect=fake_original
+        ):
+            # Install an unrelated module (not a dependency of the glue).
+            mcai_patch._button_install_patched(self.uncond)
+        self.assertEqual(self.glue.state, "uninstalled")
+
+    def test_10_glue_reconciled_when_operation_completes_deps(self):
+        """When THIS operation installs the dependency that completes the
+        glue, the glue is reconciled (scoped, non-chained case).
+        """
+        from unittest import mock
+
+        from odoo.tools import config
+
+        from .. import patch as mcai_patch
+
+        # pkg_a already there; the operation installs pkg_b, completing the deps
+        self.pkg_a.write({"state": "installed"})
+
+        def fake_original(records):
+            records._state_update("to install", ["uninstalled"])
+
+        enabled = "mcai_glue:mcai_pkg_a/mcai_pkg_b"
+        with mock.patch.dict(
+            config.options,
+            {
+                "modules_auto_install_enabled": enabled,
+                "modules_auto_install_disabled": "",
+            },
+        ), mock.patch.object(
+            mcai_patch, "_original_button_install", side_effect=fake_original
+        ):
+            mcai_patch._button_install_patched(self.pkg_b)
+        self.assertEqual(self.glue.state, "to install")

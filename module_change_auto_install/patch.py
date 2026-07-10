@@ -119,7 +119,7 @@ INSTALL_STATES = frozenset(("installed", "to install", "to upgrade"))
 _original_button_install = None  # captured in post_load()
 
 
-def _get_config_glue_pending(env):
+def _get_config_glue_pending(env, affected_names=None):
     """Return uninstalled glue modules whose config dependencies are all met.
 
     Only entries with >=2 specific dependencies (``glue:pkg_a/pkg_b``) are
@@ -131,8 +131,18 @@ def _get_config_glue_pending(env):
     Dependencies are resolved by module name against ``ir.module.module``;
     a dependency missing from the database counts as uninstalled. A glue is
     pending when every dependency state is within ``INSTALL_STATES`` — this
-    covers both retroactive reconciliation (dependencies already installed)
-    and dependencies being installed in the current transaction.
+    covers dependencies already installed and dependencies being installed in
+    the current transaction.
+
+    ``affected_names`` scopes the reconciliation to the ongoing install
+    operation: when given, only glue with at least one config dependency in
+    that set is returned, i.e. glue that *this* install has just made
+    installable. This keeps an unrelated, already-installable glue from being
+    (re)installed — and possibly failing — on every ``button_install`` of any
+    module. Retroactive reconciliation of glue whose packages were already
+    installed before the operation is delegated to the deploy script
+    (``set_addons_auto_install.py``), which sweeps the whole configuration.
+    When ``affected_names`` is ``None`` the whole configuration is considered.
 
     The nested name-based searches are bounded by the configuration size
     (a few dozen entries at most) and only run on explicit install actions,
@@ -163,8 +173,13 @@ def _get_config_glue_pending(env):
     )
     pending = module_obj.browse()
     for module in candidates:
+        deps = enabled[module.name]
+        # Scope to the current operation: skip glue that this install did not
+        # make progress on (see ``affected_names`` above).
+        if affected_names is not None and not set(deps) & affected_names:
+            continue
         states = set()
-        for dep_name in enabled[module.name]:
+        for dep_name in deps:
             dep = module_obj.search([("name", "=", dep_name)], limit=1)
             states.add(dep.state or "uninstalled")
         if states <= INSTALL_STATES:
@@ -173,12 +188,30 @@ def _get_config_glue_pending(env):
 
 
 def _button_install_patched(self):
+    module_obj = self.env["ir.module.module"]
+    # Snapshot of modules already installed / being installed before this
+    # operation, so the glue reconciliation below can be scoped to what THIS
+    # install actually changes (see ``_get_config_glue_pending``).
+    before = set(
+        module_obj.search([("state", "in", list(INSTALL_STATES))]).mapped("name")
+    )
     res = _original_button_install(self)
+    affected = (
+        set(module_obj.search([("state", "in", list(INSTALL_STATES))]).mapped("name"))
+        - before
+    )
+    affected |= set(self.mapped("name"))
     # Post-cascade reconciliation, iterated to a fixpoint so that a glue
     # whose dependencies include another glue installed in this same pass
     # (``glue_b:pkg_x/glue_a``) is caught as well. The upper bound is the
     # number of configured entries: each iteration must mark at least one
     # new module or stop.
+    #
+    # Only glue affected by the current operation is reconciled, and the core
+    # cascade runs WITHOUT a savepoint on purpose (fail-loud): if a glue tied
+    # to what is being installed fails, the error surfaces to the user. The
+    # scoping guarantees an unrelated background glue can never be (re)tried
+    # here, so it can never abort an unrelated install.
     enabled = _get_modules_dict_auto_install_config(
         config.get(
             "modules_auto_install_enabled",
@@ -186,12 +219,13 @@ def _button_install_patched(self):
         )
     )
     for _unused in range(len(enabled) + 1):
-        pending = _get_config_glue_pending(self.env)
+        pending = _get_config_glue_pending(self.env, affected)
         if not pending:
             break
         _logger.info("Config auto-install glue to install: %s", pending.mapped("name"))
         # Re-use the core cascade (exclusion and category checks included).
         _original_button_install(pending)
+        affected |= set(pending.mapped("name"))
     return res
 
 
