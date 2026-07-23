@@ -56,6 +56,17 @@ def _get_modules_dict_auto_install_config(config_value):
 def _overload_load_manifest(module, mod_path=None):
 
     res = _original_load_manifest(module, mod_path=None)
+    if not res:
+        # ``load_manifest`` returns {} when a module's manifest cannot be
+        # resolved on the addons_path -- e.g. a module still marked in the DB
+        # while its code lives in a repo not yet added to the path during a
+        # deploy (repo reorg). Injecting ``auto_install`` below would turn that
+        # {} into a truthy manifest WITHOUT the ``installable`` key, which
+        # breaks every manifest consumer that does ``manifest['installable']``
+        # (``graph.add_modules`` on registry load, ``Application.statics`` when
+        # serving assets...). Preserve the empty manifest so the core keeps
+        # skipping the module ("not installable, skipped").
+        return res
     auto_install = res.get("auto_install", False)
 
     modules_auto_install_enabled_dict = _get_modules_dict_auto_install_config(

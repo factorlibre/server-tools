@@ -386,3 +386,35 @@ class TestConfigGluePending(TransactionCase):
         (self.glue | self.single).invalidate_recordset(["auto_install"])
         self.assertTrue(self.glue.auto_install)
         self.assertFalse(self.single.auto_install)
+
+    # --- Unresolvable manifest ({} contract) regression ------------------
+
+    def test_21_overload_preserves_empty_manifest_for_configured_module(self):
+        """When the core ``load_manifest`` returns {} (module marked in the DB
+        but its manifest is not resolvable on the addons_path, e.g. during a
+        repo-reorg deploy), the override must NOT inject ``auto_install``.
+
+        Doing so would yield a truthy manifest without the ``installable`` key
+        and break ``graph.add_modules`` (registry load) and
+        ``Application.statics`` (asset serving) with ``KeyError: 'installable'``.
+        The empty manifest must be preserved even for a module listed in the
+        auto-install config, so the core keeps skipping it as before.
+        """
+        from unittest import mock
+
+        from odoo.tools import config
+
+        from .. import patch as mcai_patch
+
+        with mock.patch.object(
+            mcai_patch, "_original_load_manifest", side_effect=lambda *a, **k: {}
+        ), mock.patch.dict(
+            config.options,
+            {
+                "modules_auto_install_enabled": "mcai_glue:mcai_pkg_a/mcai_pkg_b",
+                "modules_auto_install_disabled": "",
+            },
+        ):
+            res = mcai_patch._overload_load_manifest("mcai_glue")
+        self.assertEqual(res, {})
+        self.assertNotIn("auto_install", res)
