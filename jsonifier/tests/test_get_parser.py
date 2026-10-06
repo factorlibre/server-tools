@@ -4,7 +4,9 @@
 # License LGPL-3.0 or later (http://www.gnu.org/licenses/lgpl).
 
 
-from odoo import fields, tools
+from unittest import mock
+
+from odoo import fields, models, tools
 from odoo.exceptions import UserError
 from odoo.tests.common import TransactionCase
 
@@ -267,6 +269,42 @@ class TestParser(TransactionCase):
         self.assertDictEqual(json_partner[0], expected_json)
         del self.partner.__class__.jsonify_custom
 
+    def test_json_export_callable_parser_does_not_list_attributes(self):
+        """A callable parser must not force listing record attributes.
+
+        Regression test for `_function_value`: it used to check
+        `function in dir(record)`, which builds the full attribute list of
+        the record on every field resolution, even when `function` was
+        already a callable and `dir(record)` was never going to be used.
+        """
+        self.partner.__class__.jsonify_custom = jsonify_custom
+        parser = [
+            # callable subparser
+            ("name", lambda rec, fname: rec[fname] + " rocks!"),
+            ("name:custom", "jsonify_custom"),
+            ("unknown_field", lambda rec, fname: "yeah again!"),
+        ]
+        expected_json = {
+            "name": "Akretion rocks!",
+            "custom": "yeah!",
+            "unknown_field": "yeah again!",
+        }
+        with mock.patch("builtins.dir", wraps=dir) as mocked_dir:
+            json_partner = self.partner.jsonify(parser)
+        self.assertDictEqual(json_partner[0], expected_json)
+        # `dir` may still be called by unrelated code, but never on the
+        # record being exported.
+        record_calls = [
+            call
+            for call in mocked_dir.call_args_list
+            if call.args and isinstance(call.args[0], models.BaseModel)
+        ]
+        self.assertFalse(
+            record_calls,
+            "dir() must not be called on the record to resolve a function parser",
+        )
+        del self.partner.__class__.jsonify_custom
+
     def test_full_parser(self):
         parser = self.category_export.get_json_parser()
         json = self.category.jsonify(parser)[0]
@@ -340,6 +378,14 @@ class TestParser(TransactionCase):
         json = self.category.jsonify(export.get_json_parser())[0]
         self.assertEqual(json, {"name": "yeah!"})
 
+    def test_json_export_method_name_parser(self):
+        """A `function` given as the name of a record method is still called."""
+        self.category.__class__.jsonify_custom = jsonify_custom
+        parser = {"fields": [{"name": "name", "function": "jsonify_custom"}]}
+        json = self.category.jsonify(parser)[0]
+        self.assertEqual(json, {"name": "yeah!"})
+        del self.category.__class__.jsonify_custom
+
     def test_export_relational_display_names(self):
         """If we export a relational, we get its display_name in the json."""
         parser = [
@@ -380,6 +426,15 @@ class TestParser(TransactionCase):
         bad_subparser = {"fields": [({"name": "name"}, [{"name": "subparser_name"}])]}
         with self.assertRaises(UserError):
             rec.jsonify(bad_subparser, one=True)
+
+    def test_json_export_unknown_method_name_parser(self):
+        """A `function` string that is not an attribute of the record
+        is still reported as a misconfigured parser.
+        """
+        rec = self.category.with_context(jsonify_record_strict=True)
+        bad_function_name = {"fields": [{"name": "name", "function": "notafunction"}]}
+        with self.assertRaises(UserError):
+            rec.jsonify(bad_function_name, one=True)
 
     def test_bad_parsers_fail_gracefully(self):
         rec = self.category

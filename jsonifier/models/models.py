@@ -32,7 +32,7 @@ class Base(models.AbstractModel):
         raise UserError(_("Wrong parser configuration for field: `%s`") % field_name)
 
     def _function_value(self, record, function, field_name):
-        if function in dir(record):
+        if isinstance(function, str) and hasattr(record, function):
             method = getattr(record, function, None)
             return method(field_name)
         elif callable(function):
